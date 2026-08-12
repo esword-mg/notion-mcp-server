@@ -476,7 +476,7 @@ app.post("/api/append-page", async (req, res) => {
           type: "to_do",
           to_do: {
             rich_text: [{ type: "text", text: { content: text } }],
-            checked: ischecked,
+            checked: isChecked,
           },
         };
         break;
