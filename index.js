@@ -12,27 +12,40 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const NOTION_API_KEY = process.env.NOTION_API_KEY;
-const notion = new Client({ auth: NOTION_API_KEY });
+
+const notion = new Client({
+  auth: NOTION_API_KEY,
+});
 
 if (!NOTION_API_KEY) {
   console.error("NOTION_API_KEY is not set.");
 }
 
+
+/*
+ * Notion property value helper
+ */
 function getPropertyValue(property) {
   if (!property) return null;
 
   switch (property.type) {
+
     case "title":
-      return property.title?.map((x) => x.plain_text).join("") ?? "";
+      return property.title
+        ?.map((x) => x.plain_text)
+        .join("") ?? "";
 
     case "rich_text":
-      return property.rich_text?.map((x) => x.plain_text).join("") ?? "";
+      return property.rich_text
+        ?.map((x) => x.plain_text)
+        .join("") ?? "";
 
     case "select":
       return property.select?.name ?? null;
 
     case "multi_select":
-      return property.multi_select?.map((x) => x.name) ?? [];
+      return property.multi_select
+        ?.map((x) => x.name) ?? [];
 
     case "date":
       return property.date?.start ?? null;
@@ -57,7 +70,9 @@ function getPropertyValue(property) {
 
     case "formula": {
       const type = property.formula?.type;
-      return type ? property.formula[type] ?? null : null;
+      return type
+        ? property.formula[type] ?? null
+        : null;
     }
 
     default:
@@ -67,25 +82,38 @@ function getPropertyValue(property) {
 
 
 /*
- * Notion DB의 모든 페이지를 가져옵니다.
- * 100개씩 pagination 처리하여 366개 전체를 가져옵니다.
+ * Get all pages from a Notion database
+ * Pagination is handled automatically.
  */
 async function queryAllPages(databaseId) {
+
   const results = [];
+
   let startCursor = undefined;
 
   do {
-    const response = await notion.databases.query({
-      database_id: databaseId,
-      page_size: 100,
-      ...(startCursor ? { start_cursor: startCursor } : {}),
-    });
 
-    results.push(...(response.results || []));
+    const response =
+      await notion.databases.query({
 
-    startCursor = response.has_more
-      ? response.next_cursor
-      : undefined;
+        database_id: databaseId,
+
+        page_size: 100,
+
+        ...(startCursor
+          ? { start_cursor: startCursor }
+          : {}),
+
+      });
+
+    results.push(
+      ...(response.results || [])
+    );
+
+    startCursor =
+      response.has_more
+        ? response.next_cursor
+        : undefined;
 
   } while (startCursor);
 
@@ -94,16 +122,28 @@ async function queryAllPages(databaseId) {
 
 
 /*
- * Notion 페이지를 간단한 JSON 형태로 변환합니다.
+ * Convert a Notion page to simple JSON
  */
 function pageToJson(page) {
+
   const result = {
+
     id: page.id,
+
     url: page.url ?? null,
+
   };
 
-  for (const [name, property] of Object.entries(page.properties || {})) {
-    result[name] = getPropertyValue(property);
+  for (
+    const [name, property]
+    of Object.entries(
+      page.properties || {}
+    )
+  ) {
+
+    result[name] =
+      getPropertyValue(property);
+
   }
 
   return result;
@@ -111,47 +151,79 @@ function pageToJson(page) {
 
 
 /*
+ * Get the title of a Notion database
+ */
+function getDatabaseTitle(database) {
+
+  if (!database.title) {
+    return "";
+  }
+
+  return database.title
+    .map((item) => item.plain_text)
+    .join("");
+}
+
+
+/*
  * MCP Server
  */
 const mcpServer = new Server(
+
   {
     name: "notion-mcp-server",
-    version: "1.1.0",
+    version: "1.2.0",
   },
+
   {
     capabilities: {
       tools: {},
     },
   }
+
 );
 
 
 /*
- * MCP Tool 목록
+ * MCP tools
  */
 mcpServer.setRequestHandler(
+
   ListToolsRequestSchema,
+
   async () => ({
+
     tools: [
 
       {
         name: "count_database_rows",
 
         description:
-          "노션 데이터베이스의 총 행(페이지) 개수를 세어줍니다.",
+          "노션 데이터베이스의 총 행 개수를 반환합니다.",
 
         inputSchema: {
+
           type: "object",
 
           properties: {
+
             database_id: {
+
               type: "string",
-              description: "노션 데이터베이스 ID",
+
+              description:
+                "노션 데이터베이스 ID",
+
             },
+
           },
 
-          required: ["database_id"],
+          required: [
+            "database_id"
+          ],
+
         },
+
       },
 
 
@@ -162,29 +234,44 @@ mcpServer.setRequestHandler(
           "노션 데이터베이스의 모든 행을 가져옵니다.",
 
         inputSchema: {
+
           type: "object",
 
           properties: {
+
             database_id: {
+
               type: "string",
-              description: "노션 데이터베이스 ID",
+
+              description:
+                "노션 데이터베이스 ID",
+
             },
+
           },
 
-          required: ["database_id"],
+          required: [
+            "database_id"
+          ],
+
         },
+
       },
 
     ],
+
   })
+
 );
 
 
 /*
- * MCP Tool 실행
+ * MCP tool execution
  */
 mcpServer.setRequestHandler(
+
   CallToolRequestSchema,
+
   async (request) => {
 
     const {
@@ -192,60 +279,96 @@ mcpServer.setRequestHandler(
       arguments: args
     } = request.params;
 
+
     try {
 
+
       /*
-       * Tool 1:
-       * DB 행 개수
+       * Count rows
        */
-      if (name === "count_database_rows") {
+      if (
+        name ===
+        "count_database_rows"
+      ) {
 
         const pages =
-          await queryAllPages(args.database_id);
+          await queryAllPages(
+            args.database_id
+          );
 
         return {
+
           content: [
+
             {
+
               type: "text",
 
               text:
                 `해당 데이터베이스의 총 행 개수는 ${pages.length}개입니다.`,
+
             },
+
           ],
+
         };
+
       }
 
 
       /*
-       * Tool 2:
-       * DB 전체 데이터
+       * Get all rows
        */
-      if (name === "get_database_rows") {
+      if (
+        name ===
+        "get_database_rows"
+      ) {
 
         const pages =
-          await queryAllPages(args.database_id);
+          await queryAllPages(
+            args.database_id
+          );
 
         const rows =
-          pages.map(pageToJson);
+          pages.map(
+            pageToJson
+          );
 
         return {
+
           content: [
+
             {
+
               type: "text",
 
-              text: JSON.stringify(
-                {
-                  success: true,
-                  count: rows.length,
-                  results: rows,
-                },
+              text:
+                JSON.stringify(
 
-                null,
-                2
-              ),
+                  {
+
+                    success: true,
+
+                    count:
+                      rows.length,
+
+                    results:
+                      rows,
+
+                  },
+
+                  null,
+
+                  2
+
+                ),
+
             },
+
           ],
+
         };
+
       }
 
 
@@ -253,26 +376,37 @@ mcpServer.setRequestHandler(
         `알 수 없는 도구: ${name}`
       );
 
+
     } catch (error) {
 
       return {
+
         content: [
+
           {
+
             type: "text",
+
             text:
               `오류 발생: ${error.message}`,
+
           },
+
         ],
 
         isError: true,
+
       };
+
     }
+
   }
+
 );
 
 
 /*
- * MCP SSE 연결
+ * MCP SSE
  */
 let transport;
 
@@ -303,18 +437,24 @@ app.get(
       if (!res.headersSent) {
 
         res.status(500).json({
+
           success: false,
-          error: error.message,
+
+          error:
+            error.message,
+
         });
 
       }
+
     }
+
   }
 );
 
 
 /*
- * MCP 메시지
+ * MCP messages
  */
 app.post(
   "/messages",
@@ -323,12 +463,16 @@ app.post(
     if (!transport) {
 
       return res.status(503).json({
+
         success: false,
+
         error:
           "MCP SSE transport is not connected.",
+
       });
 
     }
+
 
     try {
 
@@ -347,19 +491,26 @@ app.post(
       if (!res.headersSent) {
 
         res.status(500).json({
+
           success: false,
-          error: error.message,
+
+          error:
+            error.message,
+
         });
 
       }
+
     }
+
   }
 );
 
 
 /*
  * REST API
- * DB 행 개수
+ *
+ * Count rows
  */
 app.post(
   "/api/count-rows",
@@ -369,15 +520,20 @@ app.post(
       database_id
     } = req.body;
 
+
     if (!database_id) {
 
       return res.status(400).json({
+
         success: false,
+
         error:
           "database_id is required.",
+
       });
 
     }
+
 
     try {
 
@@ -386,19 +542,30 @@ app.post(
           database_id
         );
 
+
       res.json({
+
         success: true,
-        count: pages.length,
+
+        count:
+          pages.length,
+
       });
+
 
     } catch (error) {
 
       res.status(500).json({
+
         success: false,
-        error: error.message,
+
+        error:
+          error.message,
+
       });
 
     }
+
   }
 );
 
@@ -406,16 +573,92 @@ app.post(
 /*
  * REST API
  *
- * GET /api/questions
+ * IMPORTANT:
+ * List databases that are accessible to the integration.
  *
- * Questions DB 전체 데이터를 가져옵니다.
+ * This endpoint is for finding the actual
+ * database IDs instead of guessing them from URLs.
+ */
+app.get(
+  "/api/databases",
+  async (req, res) => {
+
+    try {
+
+      const response =
+        await notion.search({
+
+          filter: {
+
+            property: "object",
+
+            value: "database",
+
+          },
+
+          page_size: 100,
+
+        });
+
+
+      const databases =
+        (response.results || [])
+          .map((database) => ({
+
+            id:
+              database.id,
+
+            title:
+              getDatabaseTitle(
+                database
+              ),
+
+            url:
+              database.url ?? null,
+
+          }));
+
+
+      res.json({
+
+        success: true,
+
+        count:
+          databases.length,
+
+        results:
+          databases,
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "databases API error:",
+        error
+      );
+
+
+      res.status(500).json({
+
+        success: false,
+
+        error:
+          error.message,
+
+      });
+
+    }
+
+  }
+);
+
+
+/*
+ * REST API
  *
- * database_id를 URL에 넣거나
- * Render 환경변수에
- *
- * QUESTIONS_DATABASE_ID
- *
- * 를 설정할 수 있습니다.
+ * Questions DB
  */
 app.get(
   "/api/questions",
@@ -449,17 +692,22 @@ app.get(
           databaseId
         );
 
+
       const rows =
-        pages.map(pageToJson);
+        pages.map(
+          pageToJson
+        );
 
 
       res.json({
 
         success: true,
 
-        count: rows.length,
+        count:
+          rows.length,
 
-        results: rows,
+        results:
+          rows,
 
       });
 
@@ -476,11 +724,13 @@ app.get(
 
         success: false,
 
-        error: error.message,
+        error:
+          error.message,
 
       });
 
     }
+
   }
 );
 
@@ -488,7 +738,7 @@ app.get(
 /*
  * REST API
  *
- * 특정 Notion 페이지 조회
+ * Get one Notion page
  */
 app.get(
   "/api/page/:pageId",
@@ -521,17 +771,19 @@ app.get(
 
         success: false,
 
-        error: error.message,
+        error:
+          error.message,
 
       });
 
     }
+
   }
 );
 
 
 /*
- * 서버 상태 확인
+ * Health check
  */
 app.get(
   "/",
@@ -545,9 +797,12 @@ app.get(
         "notion-mcp-server",
 
       version:
-        "1.1.0",
+        "1.2.0",
 
       endpoints: {
+
+        databases:
+          "/api/databases",
 
         questions:
           "/api/questions",
@@ -573,7 +828,7 @@ app.get(
 
 
 /*
- * 서버 시작
+ * Start server
  */
 app.listen(
   PORT,
