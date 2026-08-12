@@ -426,7 +426,8 @@ app.post("/api/append-page", async (req, res) => {
   try {
     let blockObject = {};
 
-    // 요청된 type에 따라 노션 블록 객체 구성
+    // ⭐️ [핵심 수정 1] KNIME에서 문자열 "true"로 올 경우를 대비한 안전한 Boolean 형변환
+    const isChecked = checked === true || checked === "true";
     switch (type) {
       case "heading_1": // 제목 1
         blockObject = {
@@ -468,13 +469,14 @@ app.post("/api/append-page", async (req, res) => {
         };
         break;
 
+      // ⭐️ [핵심 수정 3] Row 5: 체크박스 할 일 (to_do) - isChecked 적용
       case "to_do": // 체크박스 할 일
         blockObject = {
           object: "block",
           type: "to_do",
           to_do: {
             rich_text: [{ type: "text", text: { content: text } }],
-            checked: checked, // true or false
+            checked: ischecked,
           },
         };
         break;
