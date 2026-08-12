@@ -403,16 +403,18 @@ app.post("/api/add-row", async (req, res) => {
 });
 
 /*
- * REST API - Append Page (페이지 본문에 텍스트/문단 추가)
- * 
+ * REST API - Append Page (페이지 본문에 텍스트/문단 추가 / 다양한 블록 타입 지원)
  * Body 예시:
  * {
  *   "page_id": "대상_페이지_ID",
  *   "text": "본문 맨 아래에 덧붙일 내용입니다."
  * }
  */
+/*
+ 
+ */
 app.post("/api/append-page", async (req, res) => {
-  const { page_id, text } = req.body;
+  const { page_id, text, type = "paragraph", checked = false, icon = "💡" } = req.body;
 
   if (!page_id || !text) {
     return res.status(400).json({
@@ -422,28 +424,121 @@ app.post("/api/append-page", async (req, res) => {
   }
 
   try {
-    const response = await notion.blocks.children.append({
-      block_id: page_id,
-      children: [
-        {
+    let blockObject = {};
+
+    // 요청된 type에 따라 노션 블록 객체 구성
+    switch (type) {
+      case "heading_1": // 제목 1
+        blockObject = {
+          object: "block",
+          type: "heading_1",
+          heading_1: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+
+      case "heading_2": // 제목 2
+        blockObject = {
+          object: "block",
+          type: "heading_2",
+          heading_2: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+
+      case "heading_3": // 제목 3
+        blockObject = {
+          object: "block",
+          type: "heading_3",
+          heading_3: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+        
+      case "heading_4": // 제목 4
+        blockObject = {
+          object: "block",
+          type: "heading_4",
+          heading_4: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+
+      case "to_do": // 체크박스 할 일
+        blockObject = {
+          object: "block",
+          type: "to_do",
+          to_do: {
+            rich_text: [{ type: "text", text: { content: text } }],
+            checked: checked, // true or false
+          },
+        };
+        break;
+
+      case "quote": // 인용구 (좌측 세로줄)
+        blockObject = {
+          object: "block",
+          type: "quote",
+          quote: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+
+      case "callout": // 콜아웃 (아이콘 + 배경 박스)
+        blockObject = {
+          object: "block",
+          type: "callout",
+          callout: {
+            rich_text: [{ type: "text", text: { content: text } }],
+            icon: { type: "emoji", emoji: icon },
+          },
+        };
+        break;
+
+      case "bulleted_list_item": // 글머리 기호 목록 (• 항목)
+        blockObject = {
+          object: "block",
+          type: "bulleted_list_item",
+          bulleted_list_item: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+
+      case "toggle": // 토글 목록 (접었다 펼치는 항목)
+        blockObject = {
+          object: "block",
+          type: "toggle",
+          toggle: {
+            rich_text: [{ type: "text", text: { content: text } }],
+          },
+        };
+        break;
+        
+      default: // 기본값: 일반 문단
+        blockObject = {
           object: "block",
           type: "paragraph",
           paragraph: {
-            rich_text: [
-              {
-                type: "text",
-                text: {
-                  content: text,
-                },
-              },
-            ],
+            rich_text: [{ type: "text", text: { content: text } }],
           },
-        },
-      ],
+        };
+        break;
+    }
+
+    const response = await notion.blocks.children.append({
+      block_id: page_id,
+      children: [blockObject],
     });
 
     res.json({
       success: true,
+      type: type,
       added_blocks: response.results.length,
     });
   } catch (error) {
