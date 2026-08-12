@@ -21,7 +21,6 @@ if (!NOTION_API_KEY) {
   console.error("NOTION_API_KEY is not set.");
 }
 
-
 /*
  * Notion property value helper
  */
@@ -29,23 +28,17 @@ function getPropertyValue(property) {
   if (!property) return null;
 
   switch (property.type) {
-
     case "title":
-      return property.title
-        ?.map((x) => x.plain_text)
-        .join("") ?? "";
+      return property.title?.map((x) => x.plain_text).join("") ?? "";
 
     case "rich_text":
-      return property.rich_text
-        ?.map((x) => x.plain_text)
-        .join("") ?? "";
+      return property.rich_text?.map((x) => x.plain_text).join("") ?? "";
 
     case "select":
       return property.select?.name ?? null;
 
     case "multi_select":
-      return property.multi_select
-        ?.map((x) => x.name) ?? [];
+      return property.multi_select?.map((x) => x.name) ?? [];
 
     case "date":
       return property.date?.start ?? null;
@@ -70,9 +63,7 @@ function getPropertyValue(property) {
 
     case "formula": {
       const type = property.formula?.type;
-      return type
-        ? property.formula[type] ?? null
-        : null;
+      return type ? property.formula[type] ?? null : null;
     }
 
     default:
@@ -80,763 +71,471 @@ function getPropertyValue(property) {
   }
 }
 
-
 /*
  * Get all pages from a Notion database
  * Pagination is handled automatically.
  */
 async function queryAllPages(databaseId) {
-
   const results = [];
-
   let startCursor = undefined;
 
   do {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+      page_size: 100,
+      ...(startCursor ? { start_cursor: startCursor } : {}),
+    });
 
-    const response =
-      await notion.databases.query({
-
-        database_id: databaseId,
-
-        page_size: 100,
-
-        ...(startCursor
-          ? { start_cursor: startCursor }
-          : {}),
-
-      });
-
-    results.push(
-      ...(response.results || [])
-    );
-
-    startCursor =
-      response.has_more
-        ? response.next_cursor
-        : undefined;
-
+    results.push(...(response.results || []));
+    startCursor = response.has_more ? response.next_cursor : undefined;
   } while (startCursor);
 
   return results;
 }
 
-
 /*
  * Convert a Notion page to simple JSON
  */
 function pageToJson(page) {
-
   const result = {
-
     id: page.id,
-
     url: page.url ?? null,
-
   };
 
-  for (
-    const [name, property]
-    of Object.entries(
-      page.properties || {}
-    )
-  ) {
-
-    result[name] =
-      getPropertyValue(property);
-
+  for (const [name, property] of Object.entries(page.properties || {})) {
+    result[name] = getPropertyValue(property);
   }
 
   return result;
 }
 
-
 /*
  * Get the title of a Notion database
  */
 function getDatabaseTitle(database) {
-
   if (!database.title) {
     return "";
   }
-
-  return database.title
-    .map((item) => item.plain_text)
-    .join("");
+  return database.title.map((item) => item.plain_text).join("");
 }
-
 
 /*
  * MCP Server
  */
 const mcpServer = new Server(
-
   {
     name: "notion-mcp-server",
-    version: "1.2.0",
+    version: "1.3.0",
   },
-
   {
     capabilities: {
       tools: {},
     },
   }
-
 );
-
 
 /*
  * MCP tools
  */
-mcpServer.setRequestHandler(
-
-  ListToolsRequestSchema,
-
-  async () => ({
-
-    tools: [
-
-      {
-        name: "count_database_rows",
-
-        description:
-          "노션 데이터베이스의 총 행 개수를 반환합니다.",
-
-        inputSchema: {
-
-          type: "object",
-
-          properties: {
-
-            database_id: {
-
-              type: "string",
-
-              description:
-                "노션 데이터베이스 ID",
-
-            },
-
+mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "count_database_rows",
+      description: "노션 데이터베이스의 총 행 개수를 반환합니다.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          database_id: {
+            type: "string",
+            description: "노션 데이터베이스 ID",
           },
-
-          required: [
-            "database_id"
-          ],
-
         },
-
+        required: ["database_id"],
       },
-
-
-      {
-        name: "get_database_rows",
-
-        description:
-          "노션 데이터베이스의 모든 행을 가져옵니다.",
-
-        inputSchema: {
-
-          type: "object",
-
-          properties: {
-
-            database_id: {
-
-              type: "string",
-
-              description:
-                "노션 데이터베이스 ID",
-
-            },
-
+    },
+    {
+      name: "get_database_rows",
+      description: "노션 데이터베이스의 모든 행을 가져옵니다.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          database_id: {
+            type: "string",
+            description: "노션 데이터베이스 ID",
           },
-
-          required: [
-            "database_id"
-          ],
-
         },
-
+        required: ["database_id"],
       },
-
-    ],
-
-  })
-
-);
-
+    },
+    {
+      name: "add_database_row",
+      description: "노션 데이터베이스에 새로운 행(페이지)을 추가합니다.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          database_id: { type: "string", description: "노션 데이터베이스 ID" },
+          title: { type: "string", description: "제목 (Title속성에 들어갈 텍스트)" },
+          properties: { type: "object", description: "기타 속성 (선택사항, Notion API 객체 형식)" },
+        },
+        required: ["database_id", "title"],
+      },
+    },
+    {
+      name: "append_page_content",
+      description: "노션 페이지 본문 하단에 텍스트 문단을 추가합니다.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          page_id: { type: "string", description: "대상 노션 페이지 ID" },
+          text: { type: "string", description: "추가할 텍스트 내용" },
+        },
+        required: ["page_id", "text"],
+      },
+    },
+  ],
+}));
 
 /*
  * MCP tool execution
  */
-mcpServer.setRequestHandler(
+mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
 
-  CallToolRequestSchema,
-
-  async (request) => {
-
-    const {
-      name,
-      arguments: args
-    } = request.params;
-
-
-    try {
-
-
-      /*
-       * Count rows
-       */
-      if (
-        name ===
-        "count_database_rows"
-      ) {
-
-        const pages =
-          await queryAllPages(
-            args.database_id
-          );
-
-        return {
-
-          content: [
-
-            {
-
-              type: "text",
-
-              text:
-                `해당 데이터베이스의 총 행 개수는 ${pages.length}개입니다.`,
-
-            },
-
-          ],
-
-        };
-
-      }
-
-
-      /*
-       * Get all rows
-       */
-      if (
-        name ===
-        "get_database_rows"
-      ) {
-
-        const pages =
-          await queryAllPages(
-            args.database_id
-          );
-
-        const rows =
-          pages.map(
-            pageToJson
-          );
-
-        return {
-
-          content: [
-
-            {
-
-              type: "text",
-
-              text:
-                JSON.stringify(
-
-                  {
-
-                    success: true,
-
-                    count:
-                      rows.length,
-
-                    results:
-                      rows,
-
-                  },
-
-                  null,
-
-                  2
-
-                ),
-
-            },
-
-          ],
-
-        };
-
-      }
-
-
-      throw new Error(
-        `알 수 없는 도구: ${name}`
-      );
-
-
-    } catch (error) {
-
+  try {
+    /*
+     * Count rows
+     */
+    if (name === "count_database_rows") {
+      const pages = await queryAllPages(args.database_id);
       return {
-
         content: [
-
           {
-
             type: "text",
-
-            text:
-              `오류 발생: ${error.message}`,
-
+            text: `해당 데이터베이스의 총 행 개수는 ${pages.length}개입니다.`,
           },
-
         ],
-
-        isError: true,
-
       };
-
     }
 
+    /*
+     * Get all rows
+     */
+    if (name === "get_database_rows") {
+      const pages = await queryAllPages(args.database_id);
+      const rows = pages.map(pageToJson);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ success: true, count: rows.length, results: rows }, null, 2),
+          },
+        ],
+      };
+    }
+
+    /*
+     * Add database row
+     */
+    if (name === "add_database_row") {
+      const titleKey = args.title_key || "Name";
+      const properties = args.properties || {};
+      
+      properties[titleKey] = {
+        title: [{ text: { content: args.title } }],
+      };
+
+      const newPage = await notion.pages.create({
+        parent: { database_id: args.database_id },
+        properties: properties,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `새 행이成功적으로 추가되었습니다. (ID: ${newPage.id}, URL: ${newPage.url})`,
+          },
+        ],
+      };
+    }
+
+    /*
+     * Append page content
+     */
+    if (name === "append_page_content") {
+      const response = await notion.blocks.children.append({
+        block_id: args.page_id,
+        children: [
+          {
+            object: "block",
+            type: "paragraph",
+            paragraph: {
+              rich_text: [{ type: "text", text: { content: args.text } }],
+            },
+          },
+        ],
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `페이지 본문에 내용이 추가되었습니다. (추가된 블록 수: ${response.results.length})`,
+          },
+        ],
+      };
+    }
+
+    throw new Error(`알 수 없는 도구: ${name}`);
+  } catch (error) {
+    return {
+      content: [{ type: "text", text: `오류 발생: ${error.message}` }],
+      isError: true,
+    };
   }
-
-);
-
+});
 
 /*
  * MCP SSE
  */
 let transport;
 
-
-app.get(
-  "/sse",
-  async (req, res) => {
-
-    try {
-
-      transport =
-        new SSEServerTransport(
-          "/messages",
-          res
-        );
-
-      await mcpServer.connect(
-        transport
-      );
-
-    } catch (error) {
-
-      console.error(
-        "SSE error:",
-        error
-      );
-
-      if (!res.headersSent) {
-
-        res.status(500).json({
-
-          success: false,
-
-          error:
-            error.message,
-
-        });
-
-      }
-
+app.get("/sse", async (req, res) => {
+  try {
+    transport = new SSEServerTransport("/messages", res);
+    await mcpServer.connect(transport);
+  } catch (error) {
+    console.error("SSE error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
     }
-
   }
-);
-
+});
 
 /*
  * MCP messages
  */
-app.post(
-  "/messages",
-  async (req, res) => {
-
-    if (!transport) {
-
-      return res.status(503).json({
-
-        success: false,
-
-        error:
-          "MCP SSE transport is not connected.",
-
-      });
-
-    }
-
-
-    try {
-
-      await transport.handlePostMessage(
-        req,
-        res
-      );
-
-    } catch (error) {
-
-      console.error(
-        "MCP message error:",
-        error
-      );
-
-      if (!res.headersSent) {
-
-        res.status(500).json({
-
-          success: false,
-
-          error:
-            error.message,
-
-        });
-
-      }
-
-    }
-
+app.post("/messages", async (req, res) => {
+  if (!transport) {
+    return res.status(503).json({
+      success: false,
+      error: "MCP SSE transport is not connected.",
+    });
   }
-);
 
+  try {
+    await transport.handlePostMessage(req, res);
+  } catch (error) {
+    console.error("MCP message error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+});
 
 /*
- * REST API
- *
- * Count rows
+ * REST API - Count rows
  */
-app.post(
-  "/api/count-rows",
-  async (req, res) => {
+app.post("/api/count-rows", async (req, res) => {
+  const { database_id } = req.body;
 
-    const {
-      database_id
-    } = req.body;
-
-
-    if (!database_id) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        error:
-          "database_id is required.",
-
-      });
-
-    }
-
-
-    try {
-
-      const pages =
-        await queryAllPages(
-          database_id
-        );
-
-
-      res.json({
-
-        success: true,
-
-        count:
-          pages.length,
-
-      });
-
-
-    } catch (error) {
-
-      res.status(500).json({
-
-        success: false,
-
-        error:
-          error.message,
-
-      });
-
-    }
-
+  if (!database_id) {
+    return res.status(400).json({ success: false, error: "database_id is required." });
   }
-);
 
+  try {
+    const pages = await queryAllPages(database_id);
+    res.json({ success: true, count: pages.length });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /*
- * REST API
- *
- * IMPORTANT:
- * List databases that are accessible to the integration.
- *
- * This endpoint is for finding the actual
- * database IDs instead of guessing them from URLs.
+ * REST API - Add Row (새 행/페이지 생성)
+ * 
+ * Body 예시:
+ * {
+ *   "database_id": "노션_DB_ID",
+ *   "title": "KNIME에서 전달된 질문",
+ *   "title_key": "Name", // 노션 DB의 제목 컬럼 이름 (기본값: "Name")
+ *   "properties": {} // 선택사항: 다른 속성들
+ * }
  */
-app.get(
-  "/api/databases",
-  async (req, res) => {
+app.post("/api/add-row", async (req, res) => {
+  const { database_id, title, title_key = "Name", properties = {} } = req.body;
 
-    try {
+  if (!database_id || !title) {
+    return res.status(400).json({
+      success: false,
+      error: "database_id and title are required.",
+    });
+  }
 
-      const response =
-        await notion.search({
-
-          filter: {
-
-            property: "object",
-
-            value: "database",
-
+  try {
+    const pageProperties = {
+      ...properties,
+      [title_key]: {
+        title: [
+          {
+            text: {
+              content: title,
+            },
           },
+        ],
+      },
+    };
 
-          page_size: 100,
+    const response = await notion.pages.create({
+      parent: { database_id: database_id },
+      properties: pageProperties,
+    });
 
-        });
-
-
-      const databases =
-        (response.results || [])
-          .map((database) => ({
-
-            id:
-              database.id,
-
-            title:
-              getDatabaseTitle(
-                database
-              ),
-
-            url:
-              database.url ?? null,
-
-          }));
-
-
-      res.json({
-
-        success: true,
-
-        count:
-          databases.length,
-
-        results:
-          databases,
-
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "databases API error:",
-        error
-      );
-
-
-      res.status(500).json({
-
-        success: false,
-
-        error:
-          error.message,
-
-      });
-
-    }
-
+    res.json({
+      success: true,
+      id: response.id,
+      url: response.url,
+    });
+  } catch (error) {
+    console.error("add-row API error:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
-);
-
+});
 
 /*
- * REST API
- *
- * Questions DB
+ * REST API - Append Page (페이지 본문에 텍스트/문단 추가)
+ * 
+ * Body 예시:
+ * {
+ *   "page_id": "대상_페이지_ID",
+ *   "text": "본문 맨 아래에 덧붙일 내용입니다."
+ * }
  */
-app.get(
-  "/api/questions",
-  async (req, res) => {
+app.post("/api/append-page", async (req, res) => {
+  const { page_id, text } = req.body;
 
-    const databaseId =
-      req.query.database_id ||
-      process.env.QUESTIONS_DATABASE_ID;
-
-
-    if (!databaseId) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        error:
-          "database_id is required. " +
-          "Use ?database_id=... " +
-          "or set QUESTIONS_DATABASE_ID in Render.",
-
-      });
-
-    }
-
-
-    try {
-
-      const pages =
-        await queryAllPages(
-          databaseId
-        );
-
-
-      const rows =
-        pages.map(
-          pageToJson
-        );
-
-
-      res.json({
-
-        success: true,
-
-        count:
-          rows.length,
-
-        results:
-          rows,
-
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "questions API error:",
-        error
-      );
-
-
-      res.status(500).json({
-
-        success: false,
-
-        error:
-          error.message,
-
-      });
-
-    }
-
+  if (!page_id || !text) {
+    return res.status(400).json({
+      success: false,
+      error: "page_id and text are required.",
+    });
   }
-);
 
+  try {
+    const response = await notion.blocks.children.append({
+      block_id: page_id,
+      children: [
+        {
+          object: "block",
+          type: "paragraph",
+          paragraph: {
+            rich_text: [
+              {
+                type: "text",
+                text: {
+                  content: text,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    res.json({
+      success: true,
+      added_blocks: response.results.length,
+    });
+  } catch (error) {
+    console.error("append-page API error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /*
- * REST API
- *
- * Get one Notion page
+ * REST API - List databases
  */
-app.get(
-  "/api/page/:pageId",
-  async (req, res) => {
+app.get("/api/databases", async (req, res) => {
+  try {
+    const response = await notion.search({
+      filter: { property: "object", value: "database" },
+      page_size: 100,
+    });
 
-    try {
+    const databases = (response.results || []).map((database) => ({
+      id: database.id,
+      title: getDatabaseTitle(database),
+      url: database.url ?? null,
+    }));
 
-      const page =
-        await notion.pages.retrieve({
-
-          page_id:
-            req.params.pageId,
-
-        });
-
-
-      res.json({
-
-        success: true,
-
-        result:
-          pageToJson(page),
-
-      });
-
-
-    } catch (error) {
-
-      res.status(500).json({
-
-        success: false,
-
-        error:
-          error.message,
-
-      });
-
-    }
-
+    res.json({ success: true, count: databases.length, results: databases });
+  } catch (error) {
+    console.error("databases API error:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
-);
+});
 
+/*
+ * REST API - Questions DB
+ */
+app.get("/api/questions", async (req, res) => {
+  const databaseId = req.query.database_id || process.env.QUESTIONS_DATABASE_ID;
+
+  if (!databaseId) {
+    return res.status(400).json({
+      success: false,
+      error: "database_id is required. Use ?database_id=... or set QUESTIONS_DATABASE_ID in Render.",
+    });
+  }
+
+  try {
+    const pages = await queryAllPages(databaseId);
+    const rows = pages.map(pageToJson);
+    res.json({ success: true, count: rows.length, results: rows });
+  } catch (error) {
+    console.error("questions API error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/*
+ * REST API - Get one Notion page
+ */
+app.get("/api/page/:pageId", async (req, res) => {
+  try {
+    const page = await notion.pages.retrieve({
+      page_id: req.params.pageId,
+    });
+    res.json({ success: true, result: pageToJson(page) });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /*
  * Health check
  */
-app.get(
-  "/",
-  (req, res) => {
-
-    res.json({
-
-      success: true,
-
-      service:
-        "notion-mcp-server",
-
-      version:
-        "1.2.0",
-
-      endpoints: {
-
-        databases:
-          "/api/databases",
-
-        questions:
-          "/api/questions",
-
-        page:
-          "/api/page/:pageId",
-
-        countRows:
-          "/api/count-rows",
-
-        mcpSse:
-          "/sse",
-
-        mcpMessages:
-          "/messages",
-
-      },
-
-    });
-
-  }
-);
-
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    service: "notion-mcp-server",
+    version: "1.3.0",
+    endpoints: {
+      databases: "/api/databases",
+      questions: "/api/questions",
+      page: "/api/page/:pageId",
+      countRows: "/api/count-rows",
+      addRow: "/api/add-row (POST)",
+      appendPage: "/api/append-page (POST)",
+      mcpSse: "/sse",
+      mcpMessages: "/messages",
+    },
+  });
+});
 
 /*
  * Start server
  */
-app.listen(
-  PORT,
-  () => {
-
-    console.log(
-      `Render MCP server is running on port ${PORT}.`
-    );
-
-  }
-);
+app.listen(PORT, () => {
+  console.log(`Render MCP server is running on port ${PORT}.`);
+});
