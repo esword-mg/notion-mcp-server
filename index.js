@@ -135,6 +135,38 @@ const mcpServer = new Server(
 );
 
 /*
+ * Helper: 노션 블록 객체에서 텍스트 및 주요 속성 추출
+ */
+function parseBlockContent(block) {
+  const type = block.type;
+  const blockData = block[type];
+
+  // 1. rich_text 구조에서 순수 텍스트 조합
+  let text = "";
+  if (blockData && blockData.rich_text) {
+    text = blockData.rich_text.map((x) => x.plain_text).join("");
+  }
+
+  // 2. 블록 타입별 추가 속성 추출
+  const result = {
+    id: block.id,
+    type: type,
+    text: text,
+  };
+
+  if (type === "to_do") {
+    result.checked = blockData.checked ?? false;
+  } else if (type === "callout") {
+    result.icon = blockData.icon?.emoji ?? null;
+  } else if (type === "image") {
+    result.url = blockData.file?.url || blockData.external?.url || null;
+    result.caption = blockData.caption?.map((x) => x.plain_text).join("") ?? "";
+  }
+
+  return result;
+}
+
+/*
  * MCP tools
  */
 mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -667,6 +699,68 @@ app.get("/api/page/:pageId", async (req, res) => {
     });
     res.json({ success: true, result: pageToJson(page) });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/*
+ * REST API - 노션 페이지 본문(블록 목록) 읽기
+ *
+ * 사용 예시:
+ * 1. 쿼리 사용: GET /api/page-content?page_id=3bae661e00ee807c9c6ae1cb9a7e7300
+ * 2. 별칭 사용: GET /api/page-content?page=report
+ */
+app.get("/api/page-content", async (req, res) => {
+  const { page, page_id } = req.query;
+
+  // 별칭(page) 또는 direct page_id 처리
+  let targetPageId = page_id;
+  if (!targetPageId && page) {
+    const envKey = `${page.toUpperCase()}_PAGE_ID`;
+    targetPageId = process.env[envKey];
+  }
+
+  if (!targetPageId) {
+    return res.status(400).json({
+      success: false,
+      error: "page_id or valid 'page' alias query parameter is required.",
+    });
+  }
+
+  try {
+    const blocks = [];
+    let startCursor = undefined;
+
+    // 페이지 내의 모든 블록 가져오기 (Pagination 자동 처리)
+    do {
+      const response = await notion.blocks.children.list({
+        block_id: targetPageId,
+        page_size: 100,
+        ...(startCursor ? { start_cursor: startCursor } : {}),
+      });
+
+      blocks.push(...(response.results || []));
+      startCursor = response.has_more ? response.next_cursor : undefined;
+    } while (startCursor);
+
+    // 블록별 텍스트 및 속성 파싱
+    const parsedBlocks = blocks.map(parseBlockContent);
+
+    // 전체 본문을 하나의 텍스트 문서로 이어 붙인 결과도 함께 제공
+    const fullText = parsedBlocks
+      .map((b) => (b.text ? `[${b.type}] ${b.text}` : ""))
+      .filter(Boolean)
+      .join("\n");
+
+    res.json({
+      success: true,
+      page_id: targetPageId,
+      count: parsedBlocks.length,
+      full_text: fullText, // 전처리된 전체 텍스트
+      blocks: parsedBlocks, // 블록별 상세 구조 배열
+    });
+  } catch (error) {
+    console.error("page-content API error:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
