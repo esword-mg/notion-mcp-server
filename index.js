@@ -596,6 +596,57 @@ app.get("/api/questions", async (req, res) => {
 });
 
 /*
+ * REST API - 공용 Database 조회 (Journal, Control, Questions 등 지원)
+ *
+ * 사용 예시:
+ * 1. DB 별칭 사용 (Render 환경변수 연동): /api/database?db=journal
+ * 2. DB 별칭 사용: /api/database?db=control
+ * 3. 직접 ID 입력: /api/database?database_id=3bae661e00ee807c9c6ae1cb9a7e7300
+ */
+app.get("/api/database", async (req, res) => {
+  const { db, database_id } = req.query;
+
+  // 1. 전달된 db 이름(Alias)을 환경변수 매핑 이름으로 변환 (예: 'journal' -> 'JOURNAL_DATABASE_ID')
+  let targetDatabaseId = database_id;
+
+  if (!targetDatabaseId && db) {
+    const envKey = `${db.toUpperCase()}_DATABASE_ID`;
+    targetDatabaseId = process.env[envKey];
+  }
+
+  // 2. 만약 db 지정도 없고 database_id도 없으면 기본값(QUESTIONS_DATABASE_ID) 사용
+  if (!targetDatabaseId) {
+    targetDatabaseId = process.env.QUESTIONS_DATABASE_ID;
+  }
+
+  // 3. 여전히 ID가 없으면 예외 처리
+  if (!targetDatabaseId) {
+    return res.status(400).json({
+      success: false,
+      error:
+        "database_id or valid 'db' alias is required. " +
+        "Examples: /api/database?db=journal or /api/database?database_id=YOUR_ID",
+    });
+  }
+
+  try {
+    const pages = await queryAllPages(targetDatabaseId);
+    const rows = pages.map(pageToJson);
+
+    res.json({
+      success: true,
+      db_alias: db || "custom",
+      database_id: targetDatabaseId,
+      count: rows.length,
+      results: rows,
+    });
+  } catch (error) {
+    console.error("Database API error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/*
  * REST API - Get one Notion page
  */
 app.get("/api/page/:pageId", async (req, res) => {
