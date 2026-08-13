@@ -766,6 +766,59 @@ app.get("/api/page-content", async (req, res) => {
 });
 
 /*
+ * REST API - 하위 페이지 생성 (Parent Page 아래 생성 후 new_page_id 반환)
+ *
+ * 사용 예시:
+ * POST /api/create-subpage?parent_page=parent (Render env: PARENT_PAGE_ID)
+ * POST /api/create-subpage?parent_page_id=3bae661e00ee807c...
+ *
+ * Body (JSON):
+ * { "title": "2026-08-13 분석 보고서", "icon": "📄" }
+ */
+app.post("/api/create-subpage", async (req, res) => {
+  const { parent_page, parent_page_id } = req.query;
+  const { title, icon = "📄" } = req.body;
+
+  // 1. 부모 페이지 ID 결정 (Direct query ID 또는 env 별칭)
+  let targetParentId = parent_page_id;
+  if (!targetParentId && parent_page) {
+    const envKey = `${parent_page.toUpperCase()}_PAGE_ID`; // 예: parent_page=parent -> PARENT_PAGE_ID
+    targetParentId = process.env[envKey];
+  }
+
+  if (!targetParentId || !title) {
+    return res.status(400).json({
+      success: false,
+      error: "targetParentId (via parent_page or parent_page_id) and title are required.",
+    });
+  }
+
+  try {
+    // 2. 부모 페이지 하위에 새 페이지 생성
+    const newPage = await notion.pages.create({
+      parent: { page_id: targetParentId },
+      icon: { type: "emoji", emoji: icon },
+      properties: {
+        title: {
+          title: [{ text: { content: title } }],
+        },
+      },
+    });
+
+    // 3. KNIME에서 바로 활용할 수 있도록 생성된 하위 페이지 ID 반환
+    res.json({
+      success: true,
+      new_page_id: newPage.id, // 👈 핵심: 다음 노드로 전달할 새 페이지 ID
+      title: title,
+      url: newPage.url,
+    });
+  } catch (error) {
+    console.error("create-subpage API error:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/*
  * Health check
  */
 app.get("/", (req, res) => {
