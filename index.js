@@ -403,23 +403,34 @@ app.post("/api/add-row", async (req, res) => {
 });
 
 /*
- * REST API - Append Page (페이지 본문에 텍스트/문단 추가 / 다양한 블록 타입 지원)
- * Body 예시:
- * {
- *   "page_id": "대상_페이지_ID",
- *   "text": "본문 맨 아래에 덧붙일 내용입니다."
- * }
- */
-/*
- 
+ * REST API - Append Page (쿼리 파라미터 & 별칭 지원)
+ *
+ * 사용 예시:
+ * 1. 별칭 사용: /api/append-page?page=my_page
+ * 2. 쿼리로 ID 전송: /api/append-page?page_id=3bae661e00ee807c9c6ae1cb9a7e7300
+ * 3. 기존 방식(Body에 포함): /api/append-page
  */
 app.post("/api/append-page", async (req, res) => {
-  const { page_id, text, type = "paragraph", checked = false, icon = "💡" } = req.body;
+  // 1. URL 쿼리(?page=... 또는 ?page_id=...)와 Body 양쪽에서 모두 파라미터를 읽어옴
+  const { page, page_id: queryPageId } = req.query;
+  const { page_id: bodyPageId, text, type = "paragraph", checked = false, icon = "💡" } = req.body;
 
-  if (!page_id || !text) {
+  // 2. 우선순위 적용: 
+  //   ① URL 쿼리의 page_id
+  //   ② URL 쿼리의 page 별칭 (Render 환경변수 MY_PAGE_PAGE_ID 등 매핑)
+  //   ③ Body에 들어있는 page_id
+  let targetPageId = queryPageId || bodyPageId;
+
+  if (!targetPageId && page) {
+    const envKey = `${page.toUpperCase()}_PAGE_ID`; // 예: page=report -> REPORT_PAGE_ID
+    targetPageId = process.env[envKey];
+  }
+
+  // 3. 필수값 검증
+  if (!targetPageId || !text) {
     return res.status(400).json({
       success: false,
-      error: "page_id and text are required.",
+      error: "target page_id (or valid 'page' alias in query/body) and text are required.",
     });
   }
 
