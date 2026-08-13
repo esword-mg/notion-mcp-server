@@ -443,26 +443,23 @@ app.post("/api/add-row", async (req, res) => {
  * 3. 기존 방식(Body에 포함): /api/append-page
  */
 app.post("/api/append-page", async (req, res) => {
-  // 1. URL 쿼리(?page=... 또는 ?page_id=...)와 Body 양쪽에서 모두 파라미터를 읽어옴
+  // 1. URL 쿼리(?page=... 또는 ?page_id=...)와 Body 모두 안전하게 분해 할당
   const { page, page_id: queryPageId } = req.query;
-  const { page_id: bodyPageId, text, type = "paragraph", checked = false, icon = "💡" } = req.body;
+  const { page_id: bodyPageId, text, type = "paragraph", checked = false, icon = "💡" } = req.body || {};
 
-  // 2. 우선순위 적용: 
-  //   ① URL 쿼리의 page_id
-  //   ② URL 쿼리의 page 별칭 (Render 환경변수 MY_PAGE_PAGE_ID 등 매핑)
-  //   ③ Body에 들어있는 page_id
+  // 2. targetPageId 결정 (우선순위: 쿼리의 page_id -> 쿼리의 page 별칭 -> Body의 page_id)
   let targetPageId = queryPageId || bodyPageId;
 
   if (!targetPageId && page) {
-    const envKey = `${page.toUpperCase()}_PAGE_ID`; // 예: page=report -> REPORT_PAGE_ID
+    const envKey = `${page.toUpperCase()}_PAGE_ID`;
     targetPageId = process.env[envKey];
   }
 
-  // 3. 필수값 검증
+  // 3. 필수 검증 (targetPageId가 비어있거나 text가 없으면 400 에러)
   if (!targetPageId || !text) {
     return res.status(400).json({
       success: false,
-      error: "target page_id (or valid 'page' alias in query/body) and text are required.",
+      error: "Target page_id and text are required.",
     });
   }
 
@@ -576,13 +573,15 @@ app.post("/api/append-page", async (req, res) => {
         break;
     }
 
+    // 4. 노션 API 호출 시 targetPageId 전달
     const response = await notion.blocks.children.append({
-      block_id: page_id,
+      block_id: targetPageId,
       children: [blockObject],
     });
 
     res.json({
       success: true,
+      target_page_id: targetPageId,
       type: type,
       added_blocks: response.results.length,
     });
